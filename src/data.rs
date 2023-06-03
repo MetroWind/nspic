@@ -100,11 +100,11 @@ impl Manager
         Ok(())
     }
 
-    fn newPost(post: &Post, album_id: Option<i64>) -> Result<i64, Error>
+    pub fn addPost(&self, post: &Post, album_id: Option<i64>) -> Result<(), Error>
     {
         let conn = self.confirmConnection()?;
         let row_count = conn.execute(
-            "INSERT INTO videos (id, desc, upload_time, album)
+            "INSERT INTO posts (id, desc, upload_time, album)
              VALUES (?, ?, ?, ?);", sql::params![
                  &img.id,
                  &img.path.to_str().ok_or_else(
@@ -117,62 +117,25 @@ impl Manager
         {
             return Err(error!(DataError, "Invalid insert happened"));
         }
+        for img in post.images
+        {
+            self.addImage(img, &post.id)?;
+        }
         Ok(())
     }
 
-    fn newImage(img: &Image, post_id: i64) -> Result<(), Error>
-    {
-
-
-    fn row2Video(row: &sql::Row) -> sql::Result<Video>
-    {
-        let time_value = row.get(6)?;
-        let path: String = row.get(1)?;
-        let ext: String = row.get(7)?;
-        Ok(Video {
-            id: row.get(0)?,
-            path: PathBuf::from_str(&path).unwrap(),
-            title: row.get(2)?,
-            desc: row.get(3)?,
-            artist: row.get(4)?,
-            views: row.get(5)?,
-            upload_time: time::OffsetDateTime::from_unix_timestamp(
-                time_value).map_err(
-                |_| sql::Error::IntegralValueOutOfRange(
-                    6, time_value))?,
-            container_type: ContainerType::fromExtension(&ext)
-                .ok_or_else(|| sql::Error::FromSqlConversionFailure(
-                    7, sql::types::Type::Text,
-                    Box::new(rterr!("Invalid extension name from database: {}",
-                                    ext))))?,
-            original_filename: row.get(8)?,
-            duration: time::Duration::seconds_f64(row.get(9)?),
-            thumbnail_path: row.get::<_, Option<String>>(10)?.map(
-                |s| PathBuf::from_str(&s).unwrap()),
-        })
-    }
-
-    pub fn addVideo(&self, vid: &Video) -> Result<(), Error>
+    fn addImage(&self, img: &Image, post_id: &str) -> Result<(), Error>
     {
         let conn = self.confirmConnection()?;
         let row_count = conn.execute(
-            "INSERT INTO videos (id, path, title, desc, artist, views,
-                                 upload_time, container_type, original_filename,
-                                 duration, thumbnail_path)
-             VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?);", sql::params![
-                 &vid.id,
-                 &vid.path.to_str().ok_or_else(
+            "INSERT INTO images (path, width, height, post)
+             VALUES (?, ?, ?, ?);", sql::params![
+                 &img.path.to_str().ok_or_else(
                      || rterr!("Invalid video path: {:?}", vid.path))?,
-                 &vid.title,
-                 &vid.desc,
-                 &vid.artist,
-                 vid.upload_time.unix_timestamp(),
-                 vid.container_type.toExtension(),
-                 &vid.original_filename,
-                 vid.duration.as_seconds_f64(),
-                 &vid.thumbnail_path.as_ref().map(|p| p.to_str().unwrap()),
-
-             ]).map_err(|e| error!(DataError, "Failed to add video: {}", e))?;
+                 img.width,
+                 img.height,
+                 post_id,
+             ]).map_err(|e| error!(DataError, "Failed to add image: {}", e))?;
         if row_count != 1
         {
             return Err(error!(DataError, "Invalid insert happened"));
@@ -180,41 +143,53 @@ impl Manager
         Ok(())
     }
 
-    pub fn findVideoByID(&self, id: &str) -> Result<Option<Video>, Error>
+    fn row2Post(row: &sql::Row, images: Vec<Image>) -> sql::Result<Post>
+    {
+        let time_value = row.get(2)?;
+        Ok(Post {
+            id: row.get(0)?,
+            images,
+            upload_time: time::OffsetDateTime::from_unix_timestamp(
+                time_value).map_err(
+                |_| sql::Error::IntegralValueOutOfRange(
+                    2, time_value))?,
+            album_id: row.get(3)?,
+        })
+    }
+
+    fn row2Image(row: &sql::Row) -> sql::Result<Image>
+    {
+        let path: String = row.get(0)?;
+        Ok(Image {
+            path: PathBuf::from_str(&path).unwrap(),
+            width: row.get(1)?,
+            height: row.get(2)?,
+        })
+    }
+
+    pub fn findPostByID(&self, post_id: &str) -> Result<Option<Post>, Error>
     {
         let conn = self.confirmConnection()?;
-        conn.query_row("SELECT id, path, title, desc, artist, views,
-                        upload_time, container_type, original_filename, duration,
-                        thumbnail_path
-                        FROM videos WHERE id=?;",
-                       sql::params![id], Self::row2Video)
-
+        let mut cmd = conn.prepare(
+            "SELECT path, width, height FROM images WHERE post = ?;")
+            .map_err(|e| error!(
+                DataError,
+                "Failed to compare statement to get images: {}", e))?;
+        let images: Vec<Image> = cmd.query_map([post_id,], Self::row2Image)
+            .map_err(|e| error!(DataError, "Failed to retrieve image: {}", e))?
+            .map(|row| row.map_err(|e| error!(DataError, "{}", e)))
+            .collect()?;
+        conn.query_row(
+            "SELECT id, desc, upload_time, album_id FROM posts WHERE id=?;",
+            sql::params![id], |row| Self::row2Post(row, images))
             .optional().map_err(
                 |e| error!(DataError, "Failed to look up video {}: {}", id, e))
     }
 
-    pub fn increaseViewCount(&self, id: &str) -> Result<(), Error>
-    {
-        let conn = self.confirmConnection()?;
-        let row_count = conn.execute(
-            "UPDATE videos SET views = views + 1 WHERE id=?;",
-            sql::params![id]).map_err(|e| error!(
-                DataError, "Failed to increase view count for video {}: {}",
-                id, e))?;
-        if row_count != 1
-        {
-            return Err(error!(
-                DataError,
-                "Failed to increase view count for video {}: \
-                 number of affected rows: {} != 1.", id, row_count));
-        }
-        Ok(())
-    }
-
-    /// Retrieve “count” number of videos, starting from the entry at
+    /// Retrieve “count” number of posts, starting from the entry at
     /// index “start_index”. Index is 0-based. Returned entries are
     /// sorted from new to old.
-    pub fn getVideos(&self, start_index: u64, count: u64, order: VideoOrder) ->
+    pub fn getPosts(&self, start_index: u64, count: u64, order: VideoOrder) ->
         Result<Vec<Video>, Error>
     {
         let conn = self.confirmConnection()?;
@@ -225,17 +200,28 @@ impl Manager
         };
 
         let mut cmd = conn.prepare(
-            &format!("SELECT id, path, title, desc, artist, views, upload_time,
-                      container_type, original_filename, duration,
-                      thumbnail_path
-                      FROM videos {} LIMIT ? OFFSET ?;", order_expr))
+            &format!("SELECT id FROM posts {} LIMIT ? OFFSET ?;", order_expr))
             .map_err(|e| error!(
                 DataError,
-                "Failed to compare statement to get videos: {}", e))?;
-        let rows = cmd.query_map([count, start_index], Self::row2Video).map_err(
-            |e| error!(DataError, "Failed to retrieve videos: {}", e))?.map(
-            |row| row.map_err(|e| error!(DataError, "{}", e)));
-        rows.collect()
+                "Failed to compare statement to get posts: {}", e))?;
+        let ids = cmd.query_map([count, start_index],
+                                |row| { let id: String = row.get(0)?; Ok(id) })
+            .map_err(|e| error!(DataError, "Failed to retrieve videos: {}", e))?
+            .map(|row| row.map_err(|e| error!(DataError, "{}", e)));
+        let mut result: Vec<Vedeo> = Vec::new();
+        for id in ids
+        {
+            if let Some(p) = self.findPostByID(&id)?
+            {
+                result.push(p);
+            }
+            else
+            {
+                return Err(error!(
+                    DataError, "Failed to retrieve post with id {}.", id));
+            }
+        }
+        Ok(result)
     }
 
     pub fn createSession(&self, token: &str) -> Result<(), Error>
