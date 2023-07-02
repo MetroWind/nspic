@@ -3,8 +3,10 @@
 #[macro_use]
 mod error;
 mod config;
-mod app;
 mod post;
+mod sqlite_connection;
+mod data;
+mod app;
 mod post_pipeline;
 
 use std::path::Path;

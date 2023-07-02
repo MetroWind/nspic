@@ -1,0 +1,34 @@
+<!DOCTYPE HTML>
+<html>
+  <head>
+    {% include 'includes.html' %}
+    <meta property="og:title" content="MeTube → {{ video.title }}" />
+    <meta property="og:type" content="website" />
+    {% if video.desc %}
+    <meta property="og:description" content="{{ video.desc }}" />
+    {% endif %}
+    <meta property="og:video" content="{{ site_info.url_domain ~ url_for(name='video_file', arg=video.path) }}" />
+    <meta property="og:url" content="{{ site_info.url_domain ~ url_for(name='video', arg=video.id) }}" />
+    <meta property="og:image" content="{{ site_info.url_domain ~ url_for(name='video_file', arg=video.thumbnail_path) }}" />
+    <title>MeTube → {{ video.title }}</title>
+  </head>
+  <body>
+    {% include 'include-nav.html' %}
+    <div class="VideoWrapper">
+      <video class="VideoPlayer" controls preload="metadata">
+        <source src="{{ url_for(name='video_file', arg=video.path) }}"
+                type="{{ video.content_type }}" />
+      </video>
+    </div>
+    <div>
+      <div id="VideoMeta">
+        <div id="VideoTitleLine">
+          <h2>{{ video.title }}</h2>
+          <div id="UploadTime">{{ video.upload_time_utc_str }}</div>
+        </div>
+        <p id="VideoDesc">{{ video.desc }}</p>
+      </div>
+    </div>
+    {% include 'include-footer.html' %}
+  </body>
+</html>

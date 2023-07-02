@@ -1,0 +1,35 @@
+<!DOCTYPE HTML>
+<html>
+  <head>
+    {% include 'includes.html' %}
+    <meta property="og:title" content="NSPic → Index" />
+    <meta property="og:type" content="website" />
+    <meta property="og:description" content="{{ site_info.site_title }}" />
+    <meta property="og:url" content="{{ site_info.url_domain ~ url_for(name='index', arg='') }}" />
+    <meta property="og:image" content="{{ site_info.url_domain ~ url_for(name='static', arg='film.svg') }}" />
+    <title>NSPic → Index</title>
+  </head>
+  <body>
+    {% include 'include-nav.html' %}
+    <ul class="PostList">
+      {% for post in posts -%}
+      <li class="PostListItem">
+        {% for image in post.images %}
+        <figure>
+          <img src="{{ url_for(name='image_file', arg=images.path) }}" />
+        </figure>
+        {% endfor %}
+        <div class="PostInfo">
+          <p class="PostDesc">
+            {{ post.desc }}
+          </p>
+          <div class="PostMetaInfo">
+            <div>{{ post.upload_time_utc_str }}</div>
+          </div>
+        </div>
+      </li>
+      {%- endfor %}
+    </ul>
+    {% include 'include-footer.html' %}
+  </body>
+</html>

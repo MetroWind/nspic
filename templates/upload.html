@@ -1,0 +1,25 @@
+<!DOCTYPE HTML>
+<html>
+  <head>
+    {% include 'includes.html' %}
+    <script type="text/javascript" src="{{ url_for(name='static', arg='upload.js') }}"></script>
+    <title>MeTube -> Upload</title>
+  </head>
+  <body>
+    {% include 'include-nav.html' %}
+    <form id="FormUpload">
+      <div>
+      <textarea id="Desc" name="Desc"
+                autocomplete="off" placeholder="Description"
+                spellcheck="true" rows="4" wrap="soft"
+                maxlength="4096"></textarea>
+      </div>
+      <input id="FilesToUpload" type="file" accept="image/*" multiple />
+      <div class="UploadStatus">
+        <div id="ProgressBar"></div>
+      </div>
+      <button type="button" onclick="postFile()">Post!</button>
+    </form>
+    {% include 'include-footer.html' %}
+  </body>
+</html>

@@ -11,6 +11,8 @@ use crate::error::Error as Error;
 use crate::post::{Image, Post};
 use crate::sqlite_connection;
 
+pub enum PostOrder { NewFirst, }
+
 #[derive(Clone)]
 pub struct Manager
 {
@@ -76,9 +78,10 @@ impl Manager
             |e| error!(DataError, "Failed to create table: {}", e))?;
         conn.execute(
             "CREATE TABLE IF NOT EXISTS posts (
-             id TEXT PRIMARY KEY,
+             id INTEGER PRIMARY KEY ASC,
              desc TEXT,
              upload_time INTEGER,
+             album INTEGER,
              FOREIGN KEY(album) REFERENCES albums(id)
              );", []).map_err(
             |e| error!(DataError, "Failed to create table: {}", e))?;
@@ -88,6 +91,7 @@ impl Manager
              path TEXT,
              width INTEGER,
              height INTEGER,
+             post TEXT,
              FOREIGN KEY(post) REFERENCES posts(id)
              );", []).map_err(
             |e| error!(DataError, "Failed to create table: {}", e))?;
@@ -100,38 +104,36 @@ impl Manager
         Ok(())
     }
 
-    pub fn addPost(&self, post: &Post, album_id: Option<i64>) -> Result<(), Error>
+    pub fn addPost(&self, post: &Post, album_id: Option<i64>) -> Result<i64, Error>
     {
         let conn = self.confirmConnection()?;
         let row_count = conn.execute(
-            "INSERT INTO posts (id, desc, upload_time, album)
-             VALUES (?, ?, ?, ?);", sql::params![
-                 &img.id,
-                 &img.path.to_str().ok_or_else(
-                     || rterr!("Invalid video path: {:?}", vid.path))?,
-                 &img.desc,
-                 img.upload_time.unix_timestamp(),
+            "INSERT INTO posts (desc, upload_time, album)
+             VALUES (?, ?, ?);", sql::params![
+                 &post.desc,
+                 post.upload_time.unix_timestamp(),
                  album_id,
              ]).map_err(|e| error!(DataError, "Failed to add image: {}", e))?;
         if row_count != 1
         {
             return Err(error!(DataError, "Invalid insert happened"));
         }
-        for img in post.images
+        let id = conn.last_insert_rowid();
+        for img in &post.images
         {
-            self.addImage(img, &post.id)?;
+            self.addImage(&img, id)?;
         }
-        Ok(())
+        Ok(id)
     }
 
-    fn addImage(&self, img: &Image, post_id: &str) -> Result<(), Error>
+    fn addImage(&self, img: &Image, post_id: i64) -> Result<(), Error>
     {
         let conn = self.confirmConnection()?;
         let row_count = conn.execute(
             "INSERT INTO images (path, width, height, post)
              VALUES (?, ?, ?, ?);", sql::params![
                  &img.path.to_str().ok_or_else(
-                     || rterr!("Invalid video path: {:?}", vid.path))?,
+                     || rterr!("Invalid image path: {:?}", img.path))?,
                  img.width,
                  img.height,
                  post_id,
@@ -145,15 +147,15 @@ impl Manager
 
     fn row2Post(row: &sql::Row, images: Vec<Image>) -> sql::Result<Post>
     {
-        let time_value = row.get(2)?;
+        let time_value = row.get(1)?;
         Ok(Post {
-            id: row.get(0)?,
             images,
+            desc: row.get(0)?,
             upload_time: time::OffsetDateTime::from_unix_timestamp(
                 time_value).map_err(
                 |_| sql::Error::IntegralValueOutOfRange(
                     2, time_value))?,
-            album_id: row.get(3)?,
+            album_id: row.get(2)?,
         })
     }
 
@@ -167,7 +169,7 @@ impl Manager
         })
     }
 
-    pub fn findPostByID(&self, post_id: &str) -> Result<Option<Post>, Error>
+    pub fn findPostByID(&self, post_id: i64) -> Result<Option<Post>, Error>
     {
         let conn = self.confirmConnection()?;
         let mut cmd = conn.prepare(
@@ -175,28 +177,30 @@ impl Manager
             .map_err(|e| error!(
                 DataError,
                 "Failed to compare statement to get images: {}", e))?;
-        let images: Vec<Image> = cmd.query_map([post_id,], Self::row2Image)
+        let images: Result<Vec<Image>, Error> =
+            cmd.query_map([post_id,], Self::row2Image)
             .map_err(|e| error!(DataError, "Failed to retrieve image: {}", e))?
             .map(|row| row.map_err(|e| error!(DataError, "{}", e)))
-            .collect()?;
+            .collect();
+        let images = images?;
         conn.query_row(
-            "SELECT id, desc, upload_time, album_id FROM posts WHERE id=?;",
-            sql::params![id], |row| Self::row2Post(row, images))
+            "SELECT desc, upload_time, album FROM posts WHERE id=?;",
+            sql::params![post_id], |row| Self::row2Post(row, images))
             .optional().map_err(
-                |e| error!(DataError, "Failed to look up video {}: {}", id, e))
+                |e| error!(DataError, "Failed to look up post {}: {}", post_id, e))
     }
 
     /// Retrieve “count” number of posts, starting from the entry at
     /// index “start_index”. Index is 0-based. Returned entries are
     /// sorted from new to old.
-    pub fn getPosts(&self, start_index: u64, count: u64, order: VideoOrder) ->
-        Result<Vec<Video>, Error>
+    pub fn getPosts(&self, start_index: u64, count: u64, order: PostOrder) ->
+        Result<Vec<Post>, Error>
     {
         let conn = self.confirmConnection()?;
 
         let order_expr = match order
         {
-            VideoOrder::NewFirst => "ORDER BY upload_time DESC",
+            PostOrder::NewFirst => "ORDER BY upload_time DESC",
         };
 
         let mut cmd = conn.prepare(
@@ -204,14 +208,14 @@ impl Manager
             .map_err(|e| error!(
                 DataError,
                 "Failed to compare statement to get posts: {}", e))?;
-        let ids = cmd.query_map([count, start_index],
-                                |row| { let id: String = row.get(0)?; Ok(id) })
+        let ids = cmd.query_map([count, start_index], |row| row.get(0))
             .map_err(|e| error!(DataError, "Failed to retrieve videos: {}", e))?
             .map(|row| row.map_err(|e| error!(DataError, "{}", e)));
-        let mut result: Vec<Vedeo> = Vec::new();
+        let mut result: Vec<Post> = Vec::new();
         for id in ids
         {
-            if let Some(p) = self.findPostByID(&id)?
+            let id = id?;
+            if let Some(p) = self.findPostByID(id)?
             {
                 result.push(p);
             }
@@ -276,5 +280,93 @@ impl Manager
         }
         Ok(())
     }
+}
 
+// ========== Unit tests ============================================>
+
+#[cfg(test)]
+mod tests
+{
+    use super::*;
+
+    fn tempFile() -> PathBuf
+    {
+        std::env::temp_dir().join(OffsetDateTime::now_utc().unix_timestamp_nanos().to_string())
+    }
+
+    struct FileDeleter
+    {
+        files: Vec<PathBuf>,
+    }
+
+    impl FileDeleter
+    {
+        fn new() -> Self
+        {
+            Self { files: Vec::new() }
+        }
+
+        fn register<P: AsRef<Path>>(&mut self, f: P)
+        {
+            let p: &Path = f.as_ref();
+            self.files.push(p.to_owned());
+        }
+    }
+
+    impl Drop for FileDeleter
+    {
+        fn drop(&mut self)
+        {
+            for f in &self.files
+            {
+                std::fs::remove_file(&f).ok();
+            }
+        }
+    }
+
+    #[test]
+    fn addEmptyPostAndQuery() -> Result<(), Error>
+    {
+        let mut manager = Manager::new(sqlite_connection::Source::Memory);
+        manager.connect()?;
+        manager.init()?;
+
+        let p = Post::new();
+        let id = manager.addPost(&p, None)?;
+        let post_maybe = manager.findPostByID(id)?;
+        assert!(post_maybe.is_some());
+        Ok(())
+    }
+
+    #[test]
+    fn addPostWithImageAndQuery() -> Result<(), Error>
+    {
+        let mut deleter = FileDeleter::new();
+        let db = tempFile();
+        deleter.register(&db);
+
+        let mut manager = Manager::new(sqlite_connection::Source::File(db));
+        manager.connect()?;
+        manager.init()?;
+
+        let image1 = Image {
+            path: PathBuf::from("aaa"),
+            width: 1,
+            height: 2,
+        };
+        let image2 = Image {
+            path: PathBuf::from("bbb"),
+            width: 3,
+            height: 4,
+        };
+        let mut p = Post::new();
+        p.images = vec![image1, image2];
+
+        let id = manager.addPost(&p, None)?;
+        let post_maybe = manager.findPostByID(id)?;
+        assert!(post_maybe.is_some());
+        let post = post_maybe.unwrap();
+        assert_eq!(post.images.len(), 2);
+        Ok(())
+    }
 }
