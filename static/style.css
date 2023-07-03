@@ -59,6 +59,7 @@ table {
     --color-block: #2f3542;
     --color-weak-fg: #57606f;
     --thumb-width: 240px;
+    --image-size: min(640px, 100vw) ;
 }
 
 *
@@ -69,7 +70,7 @@ table {
 body
 {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen-Sans, Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
-    font-size: 14px;
+    font-size: 18px;
     line-height: 1.4;
     background-color: var(--color-bg);
     color: var(--color-fg);
@@ -87,8 +88,15 @@ a:hover
     background-color: var(--color-link);
 }
 
+p
+{
+    margin-top: 1em;
+    margin-bottem: 1em;
+}
+
 nav
 {
+    font-size: 80%;
     height: 3em;
     display: flex;
     justify-content: space-between;
@@ -102,100 +110,82 @@ h1#SiteTitle
     font-style: italic;
 }
 
-ul.VideoList
+main
+{
+    max-width: var(--image-size);
+    margin-left: auto;
+    margin-right: auto;
+}
+
+ul.PostList > li
+{
+    display: block;
+    margin-bottom: 2em;
+}
+
+.PostMetaInfo
+{
+    font-size: 80%;
+}
+
+ul.ImageList
 {
     display: flex;
-    flex-wrap: wrap;
-    gap: 32px;
-    padding: 32px;
+    overflow-x: scroll;
+    overflow-y: hidden;
+    align-items: center;
+    scroll-snap-type: x mandatory;
+    scrollbar-gutter: stable;
 }
 
-li.VideoListItem
+ul.ImageList > li
 {
+    display: inline-block;
+    max-height: var(--image-size);
+    width: var(--image-size);
+    scroll-snap-align: center;
 }
 
-figure.Thumbnail
+img.Image
 {
-    width: var(--thumb-width);
-    height: calc(var(--thumb-width) * 0.5625);
-    border-radius: 16px;
-    margin-bottom: 8px;
-    background-color: var(--color-block);
-    background-position: center;
-    background-size: contain;
-    background-repeat: no-repeat;
+    width: var(--image-size);
+    max-height: var(--image-size);
+    object-fit: contain;
 }
 
-figure.ThumbnailFallback
+ul.ScrollIndicators
 {
-    background-size: 64px;
+    display: block;
+    font-size: 0px;
+    text-align: center;
+    margin-top: 10px;
+    margin-top: 10px;
 }
 
-a.ThumbnailLink
+li.ScrollIndicator
 {
-    display: flex;
-    width: 100%;
-    height: 100%;
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    background-color: white;
+    border-radius: 50%;
+    margin-left: 4px;
+    margin-right: 4px;
 }
 
-a.ThumbnailLink:hover
+li.ScrollIndicator.Active
 {
-    color: unset;
-    background-color: unset;
+    background-color: #3498db;
 }
 
-.VideoThumbTitleWrapper
-{
-    max-height: 2.8em;          /* 2 * 1.4 */
-    overflow: hidden;
-}
-
-.VideoThumbDuration
-{
-    align-self: flex-end;
-    text-align: right;
-    width: 100%;
-    padding-right: 8px;
-    text-shadow: var(--color-bg) 0px 0px 4px;
-}
-
-.VideoThumbInfo
-{
-    max-width: var(--thumb-width);
-}
-
-.VideoMetaInfo
-{
-    color: var(--color-weak-fg);
-}
-
-video.VideoPlayer
-{
-    width: 100%;
-    max-height: calc(100vh - 3em);
-}
-
-#VideoMeta
-{
-    padding: 10px;
-}
-
-#VideoTitleLine
+ul.ToolBar
 {
     display: flex;
-    gap: 1em;
-    justify-content: space-between;
-    margin-bottom: 20px;
 }
 
-#VideoTitleLine > h2
+ul.ToolBar > li
 {
-    font-size: 144%;
-}
-
-#UploadTime
-{
-    color: var(--color-weak-fg);
+    display: inline-block;
 }
 
 hr

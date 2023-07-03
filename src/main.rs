@@ -5,7 +5,10 @@ mod error;
 mod config;
 mod post;
 mod sqlite_connection;
+mod utils;
 mod data;
+mod to_response;
+mod auth;
 mod app;
 mod post_pipeline;
 

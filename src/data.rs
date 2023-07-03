@@ -91,7 +91,7 @@ impl Manager
              path TEXT,
              width INTEGER,
              height INTEGER,
-             post TEXT,
+             post id,
              FOREIGN KEY(post) REFERENCES posts(id)
              );", []).map_err(
             |e| error!(DataError, "Failed to create table: {}", e))?;
@@ -145,17 +145,38 @@ impl Manager
         Ok(())
     }
 
+    pub fn deletePost(&self, post_id: i64) -> Result<(), Error>
+    {
+        let conn = self.confirmConnection()?;
+        let row_count = conn.execute("DELETE FROM images WHERE post = ?;",
+                                     sql::params![post_id,]).map_err(
+            |e| error!(DataError, "Failed to delete images: {}", e))?;
+        if row_count == 0
+        {
+            return Err(error!(DataError, "Post not found"));
+        }
+        let row_count = conn.execute("DELETE FROM posts WHERE id = ?;",
+                                     sql::params![post_id,]).map_err(
+            |e| error!(DataError, "Failed to delete post: {}", e))?;
+        if row_count != 1
+        {
+            return Err(error!(DataError, "Invalid deletion happened."));
+        }
+        Ok(())
+    }
+
     fn row2Post(row: &sql::Row, images: Vec<Image>) -> sql::Result<Post>
     {
-        let time_value = row.get(1)?;
+        let time_value = row.get(2)?;
         Ok(Post {
+            id: row.get(0)?,
             images,
-            desc: row.get(0)?,
+            desc: row.get(1)?,
             upload_time: time::OffsetDateTime::from_unix_timestamp(
                 time_value).map_err(
                 |_| sql::Error::IntegralValueOutOfRange(
                     2, time_value))?,
-            album_id: row.get(2)?,
+            album_id: row.get(3)?,
         })
     }
 
@@ -184,7 +205,7 @@ impl Manager
             .collect();
         let images = images?;
         conn.query_row(
-            "SELECT desc, upload_time, album FROM posts WHERE id=?;",
+            "SELECT id, desc, upload_time, album FROM posts WHERE id=?;",
             sql::params![post_id], |row| Self::row2Post(row, images))
             .optional().map_err(
                 |e| error!(DataError, "Failed to look up post {}: {}", post_id, e))
@@ -339,7 +360,7 @@ mod tests
     }
 
     #[test]
-    fn addPostWithImageAndQuery() -> Result<(), Error>
+    fn addPostWithImageAndQueryAndDelete() -> Result<(), Error>
     {
         let mut deleter = FileDeleter::new();
         let db = tempFile();
@@ -366,7 +387,11 @@ mod tests
         let post_maybe = manager.findPostByID(id)?;
         assert!(post_maybe.is_some());
         let post = post_maybe.unwrap();
+        assert_eq!(post.id, id);
         assert_eq!(post.images.len(), 2);
+
+        manager.deletePost(id)?;
+        assert!(manager.findPostByID(id)?.is_none());
         Ok(())
     }
 }

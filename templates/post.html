@@ -4,23 +4,19 @@
   <head>
     {% include 'includes.html' %}
     <script defer src="{{ url_for(name='static', arg='gallery.js') }}"></script>
-    <meta property="og:title" content="NSPic → Index" />
+    <meta property="og:title" content="{{ 'NSPic → ' ~ post.desc | truncate(length=20) }}" />
     <meta property="og:type" content="website" />
     <meta property="og:description" content="{{ site_info.site_title }}" />
     <meta property="og:url" content="{{ site_info.url_domain ~ url_for(name='index', arg='') }}" />
     <meta property="og:image" content="{{ site_info.url_domain ~ url_for(name='static', arg='film.svg') }}" />
-    <title>NSPic → Index</title>
+    <title>{{ 'NSPic → ' ~ post.desc | truncate(length=20) }}</title>
   </head>
   <body>
     {% include 'include-nav.html' %}
     <main>
-    <ul class="PostList">
-      {% for post in posts -%}
-      <li class="PostListItem">
-        {{ macros::post_view(post=post, details=false) }}
-      </li>
-      {% endfor %}
-    </ul>
+      <div class="PostView">
+        {{ macros::post_view(post=post, details=true) }}
+      </div>
     </main>
     {% include 'include-footer.html' %}
   </body>

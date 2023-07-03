@@ -1,0 +1,36 @@
+{% macro post_view(post, details) %}
+<ul class="ImageList">
+  {% for image in post.images %}
+  <li>
+    <img class="Image" src="{{ url_for(name='image_file', arg=image.path) }}" />
+  </li>
+  {% endfor %}
+</ul>
+{% if post.images | length > 1 %}
+<ul class="ScrollIndicators">
+  {% for _ in post.images %}
+  <li class="ScrollIndicator"></li>
+  {%- endfor %}
+</ul>
+{% endif %}
+<ul class="ToolBar">
+  {% if not details %}
+  <li class="ToolBarButton">
+    <a href="{{ url_for(name='post', arg=post.id | as_str) }}">Go</a>
+  </li>
+  {% endif %}
+  {% if details %}
+  <li class="ToolBarButton">
+    <a href="{{ url_for(name='delete_confirm', arg=post.id | as_str) }}">Del</a>
+  </li>
+  {% endif %}
+</ul>
+<div class="PostInfo">
+  <p class="PostDesc">
+    {{ post.desc }}
+  </p>
+  <div class="PostMetaInfo">
+    <div>{{ post.upload_time_utc_str }}</div>
+  </div>
+</div>
+{% endmacro post_view %}

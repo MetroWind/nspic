@@ -1,0 +1,20 @@
+{% import "macros.html" as macros %}
+<!DOCTYPE HTML>
+<html>
+  <head>
+    {% include 'includes.html' %}
+    <title>NSPic -> Deleting post</title>
+  </head>
+  <body>
+    {% include 'include-nav.html' %}
+    <main>
+      <form action="{{ url_for(name='delete', arg=post.id | as_str) }}"
+            method="post">
+        <p>You are about to delete this post:</p>
+        <div>{{ post.desc }}</div>
+        <input type="submit" value="Delete!" />
+      </form>
+    </main>
+    {% include 'include-footer.html' %}
+  </body>
+</html>

@@ -13,10 +13,11 @@ fn defaultServePath() -> String
 }
 
 fn defaultListenPort() -> u16 { 8080 }
-fn defaultDataDir() -> String { String::from("test") }
+fn defaultDataDir() -> String { String::from(".") }
 fn defaultImageDir() -> String { String::from("test") }
 fn defaultUploadBytesMax() -> u64 { 1024 * 1024 * 100 }
 fn defaultImagePixelSize() -> u32 { 1280 }
+fn defaultSessionLiftTimeSec() -> u64 { 2592000 }
 
 fn defaultSiteTitle() -> String { String::from("NSPic") }
 fn defaultFootnote() -> String { String::new() }
@@ -68,6 +69,9 @@ pub struct Configuration
     pub image_dir: String,
     #[serde(default = "defaultImagePixelSize")]
     pub image_pixel_size: u32,
+    #[serde(default = "defaultSessionLiftTimeSec")]
+    pub session_life_time_sec: u64,
+    pub password: String,
     pub site_info: SiteInfo,
 }
 
@@ -95,6 +99,8 @@ impl Default for Configuration
             upload_bytes_max: defaultUploadBytesMax(),
             image_dir: defaultImageDir(),
             image_pixel_size: defaultImagePixelSize(),
+            session_life_time_sec: defaultSessionLiftTimeSec(),
+            password: String::from("nspic"),
             site_info: SiteInfo::default(),
         }
     }

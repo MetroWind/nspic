@@ -7,7 +7,8 @@ if(match !== null && match[1] !== undefined)
     serve_prefix = match[1];
 }
 
-function postFile() {
+function postFile()
+{
     var formdata = new FormData();
     formdata.append('Desc', document.getElementById('Desc').value);
     let files_control = document.getElementById('FilesToUpload');
@@ -20,16 +21,20 @@ function postFile() {
     var request = new XMLHttpRequest();
 
     request.upload.addEventListener('progress', function (e) {
-        if (e.loaded <= total_size) {
+        if (e.loaded <= total_size)
+        {
             var percent = Math.round(e.loaded / total_size * 100);
             document.getElementById('ProgressBar').style.width = percent + '%';
             document.getElementById('ProgressBar').innerHTML = percent + '%';
         }
-
-        if(e.loaded == e.total){
+        if(e.loaded == e.total)
+        {
             document.getElementById('ProgressBar').style.width = '100%';
             document.getElementById('ProgressBar').innerHTML = '100%';
         }
+    });
+    request.addEventListener("load", function() {
+        window.location.href = serve_prefix + "/";
     });
 
     request.open('post', serve_prefix + '/upload/');

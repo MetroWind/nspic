@@ -16,63 +16,15 @@ use crate::error::Error;
 use crate::config::Configuration;
 use crate::data;
 use crate::post::{Image, Post};
-use crate::post_pipeline::{UploadingImage, RawImage, uploadPart};
+use crate::utils::uriFromStr;
+use crate::auth::{handleLogin, validateSession, TOKEN_COOKIE};
+use crate::to_response::ToResponse;
+use crate::post_pipeline::{UploadingImage, RawImage, uploadPart, imagePath};
 
 static BASE64: &base64::engine::general_purpose::GeneralPurpose =
     &base64::engine::general_purpose::STANDARD;
 static BASE64_NO_PAD: &base64::engine::general_purpose::GeneralPurpose =
     &base64::engine::general_purpose::STANDARD_NO_PAD;
-static TOKEN_COOKIE: &str = "nspic-token";
-
-trait ToResponse
-{
-    fn toResponse(self) -> Response;
-}
-
-impl ToResponse for Result<String, Error>
-{
-    fn toResponse(self) -> Response
-    {
-        match self
-        {
-            Ok(s) => warp::reply::html(s).into_response(),
-            Err(e) => {
-                log_error!("{}", e);
-                e.into_response()
-            },
-        }
-    }
-}
-
-impl ToResponse for Result<Response, Error>
-{
-    fn toResponse(self) -> Response
-    {
-        match self
-        {
-            Ok(s) => s,
-            Err(e) => {
-                log_error!("{}", e);
-                e.into_response()
-            }
-        }
-    }
-}
-
-// fn validateSession(token: &Option<String>, data_manager: &data::Manager,
-//                    config: &Configuration) -> Result<bool, Error>
-// {
-//     if let Some(token) = token
-//     {
-//         data_manager.expireSessions(config.session_life_time_sec)?;
-//         data_manager.hasSession(&token)?;
-//         Ok(true)
-//     }
-//     else
-//     {
-//         Ok(false)
-//     }
-// }
 
 fn handleIndex(templates: &Tera, params: &HashMap<String, String>,
                data_manager: &data::Manager,
@@ -95,14 +47,81 @@ fn handleIndex(templates: &Tera, params: &HashMap<String, String>,
     Ok(warp::reply::html(html).into_response())
 }
 
-fn handleUploadPage(templates: &Tera, config: &Configuration) ->
-    Result<Response, Error>
+fn handlePost(templates: &Tera, post_id: i64, data_manager: &data::Manager,
+              config: &Configuration) -> Result<Response, Error>
 {
+    let post = data_manager.findPostByID(post_id)?.ok_or_else(
+        || Error::HTTPStatus(StatusCode::NOT_FOUND, String::new()))?;
     let mut context = tera::Context::new();
+    context.insert("post", &post);
     context.insert("site_info", &config.site_info);
-    let html = templates.render("upload.html", &context).map_err(
+    let html = templates.render("post.html", &context).map_err(
         |e| rterr!("Failed to render template: {}", e))?;
     Ok(warp::reply::html(html).into_response())
+}
+
+fn handleDeleteConfirm(
+    templates: &Tera, post_id: i64, data_manager: &data::Manager,
+    config: &Configuration, token: Option<String>) -> Result<Response, Error>
+{
+    if validateSession(&token, data_manager, config)?
+    {
+        let post = data_manager.findPostByID(post_id)?.ok_or_else(
+            || Error::HTTPStatus(StatusCode::NOT_FOUND, String::new()))?;
+        let mut context = tera::Context::new();
+        context.insert("post", &post);
+        context.insert("site_info", &config.site_info);
+        let html = templates.render("delete_confirm.html", &context).map_err(
+            |e| rterr!("Failed to render template: {}", e))?;
+        Ok(warp::reply::html(html).into_response())
+    }
+    else
+    {
+        Err(Error::HTTPStatus(StatusCode::UNAUTHORIZED, String::new()))
+    }
+}
+
+fn handleDelete(post_id: i64, data_manager: &data::Manager,
+                config: &Configuration, token: Option<String>) ->
+    Result<Response, Error>
+{
+    if validateSession(&token, data_manager, config)?
+    {
+        let post = data_manager.findPostByID(post_id)?.ok_or_else(
+            || Error::HTTPStatus(StatusCode::NOT_FOUND, String::new()))?;
+        info!("Deleting post {}...", post_id);
+        data_manager.deletePost(post_id)?;
+        for image in post.images
+        {
+            info!("Deleting image file at {}...", image.path.display());
+            std::fs::remove_file(imagePath(&image, config))
+                .map_err(|_| rterr!("Failed to delete image file."))?
+        }
+        Ok(warp::redirect::found(uriFromStr(&config.serve_under_path)?)
+           .into_response())
+    }
+    else
+    {
+        Err(Error::HTTPStatus(StatusCode::UNAUTHORIZED, String::new()))
+    }
+}
+
+fn handleUploadPage(data_manager: &data::Manager, templates: &Tera,
+                    config: &Configuration, token: Option<String>) ->
+    Result<Response, Error>
+{
+    if validateSession(&token, data_manager, config)?
+    {
+        let mut context = tera::Context::new();
+        context.insert("site_info", &config.site_info);
+        let html = templates.render("upload.html", &context).map_err(
+            |e| rterr!("Failed to render template: {}", e))?;
+        Ok(warp::reply::html(html).into_response())
+    }
+    else
+    {
+        Err(Error::HTTPStatus(StatusCode::UNAUTHORIZED, String::new()))
+    }
 }
 
 enum UploadPart
@@ -111,11 +130,17 @@ enum UploadPart
     Image(RawImage),
 }
 
-async fn handleUpload(form_data: warp::multipart::FormData,
+async fn handleUpload(token: Option<String>,
+                      form_data: warp::multipart::FormData,
                       data_manager: &data::Manager,
                       config: &Configuration) ->
     Result<String, warp::Rejection>
 {
+    if !validateSession(&token, data_manager, config).map_err(
+        |_| warp::reject::reject())?
+    {
+        return Err(warp::reject::reject());
+    }
     let mut desc = String::new();
     let parts: Vec<_> = form_data.and_then(
         |part| async move {
@@ -158,7 +183,8 @@ async fn handleUpload(form_data: warp::multipart::FormData,
         {
             UploadPart::Desc(s) => {desc = s;},
             UploadPart::Image(img) => {
-                let image = img.moveToLibrary(config).map_err(error::reject)?
+                let image = img.resize(config).map_err(error::reject)?
+                    .moveToLibrary(config).map_err(error::reject)?
                     .makeRelativePath(config).map_err(error::reject)?
                     .probeMetadata(config).map_err(error::reject)?
                     .generateThumbnail(config).map_err(error::reject)?;
@@ -172,7 +198,7 @@ async fn handleUpload(form_data: warp::multipart::FormData,
     post.images = images;
     // post.album_id = ???;
     data_manager.addPost(&post, None).map_err(error::reject)?;
-    Ok::<_, warp::Rejection>(String::from("OK"))
+    Ok::<_, warp::Rejection>(String::from("Ok"))
 }
 
 fn urlFor(name: &str, arg: &str) -> String
@@ -181,6 +207,10 @@ fn urlFor(name: &str, arg: &str) -> String
     {
         "index" => String::from("/"),
         "upload" => String::from("/upload"),
+        "post" => String::from("/p/") + arg,
+        "delete_confirm" => String::from("/delete-confirm/") + arg,
+        "delete" => String::from("/delete/") + arg,
+        "login" => String::from("/login/"),
         "static" => String::from("/static/") + arg,
         "image_file" => String::from("/image/") + arg,
         _ => String::from("/"),
@@ -246,6 +276,16 @@ impl App
 
     fn init(&mut self) -> Result<(), Error>
     {
+        if !Path::new(&self.config.data_dir).exists()
+        {
+            std::fs::create_dir_all(&self.config.data_dir)
+                .map_err(|e| rterr!("Failed to create data dir: {}", e))?;
+        }
+        if !Path::new(&self.config.image_dir).exists()
+        {
+            std::fs::create_dir_all(&self.config.image_dir)
+                .map_err(|e| rterr!("Failed to create image dir: {}", e))?;
+        }
         self.data_manager.connect()?;
         self.data_manager.init()?;
         let template_path = PathBuf::from(&self.config.data_dir)
@@ -259,17 +299,6 @@ impl App
             |e| rterr!("Failed to compile templates: {}", e))?;
         self.templates.register_function(
             "url_for", makeURLFor(self.config.serve_under_path.clone()));
-
-        if !Path::new(&self.config.data_dir).exists()
-        {
-            std::fs::create_dir_all(&self.config.data_dir)
-                .map_err(|e| rterr!("Failed to create data dir: {}", e))?;
-        }
-        if !Path::new(&self.config.image_dir).exists()
-        {
-            std::fs::create_dir_all(&self.config.image_dir)
-                .map_err(|e| rterr!("Failed to create image dir: {}", e))?;
-        }
         Ok(())
     }
 
@@ -292,29 +321,72 @@ impl App
 
         let temp = self.templates.clone();
         let config = self.config.clone();
-        let upload_page = warp::get().and(warp::path("upload"))
-            .and(warp::path::end()).map(move || {
-            handleUploadPage(&temp, &config).toResponse()
+        let data_manager = self.data_manager.clone();
+        let post = warp::get().and(warp::path("p")).and(warp::path::param())
+            .and(warp::path::end()).map(move |id: i64| {
+            handlePost(&temp, id, &data_manager, &config).toResponse()
         });
+
+        let temp = self.templates.clone();
+        let config = self.config.clone();
+        let data_manager = self.data_manager.clone();
+        let delete_confirm = warp::get().and(warp::path("delete-confirm"))
+            .and(warp::path::param()).and(warp::path::end())
+            .and(warp::filters::cookie::optional(TOKEN_COOKIE))
+            .map(move |id: i64, token: Option<String>| {
+                handleDeleteConfirm(&temp, id, &data_manager, &config, token)
+                    .toResponse()
+            });
+
+        let config = self.config.clone();
+        let data_manager = self.data_manager.clone();
+        let delete = warp::post().and(warp::path("delete"))
+            .and(warp::path::param()).and(warp::path::end())
+            .and(warp::filters::cookie::optional(TOKEN_COOKIE))
+            .map(move |id: i64, token: Option<String>| {
+                handleDelete(id, &data_manager, &config, token).toResponse()
+            });
+
+        let temp = self.templates.clone();
+        let config = self.config.clone();
+        let data_manager = self.data_manager.clone();
+        let upload_page = warp::get().and(warp::path("upload"))
+            .and(warp::path::end())
+            .and(warp::filters::cookie::optional(TOKEN_COOKIE)).map(
+                move |token: Option<String>|
+                handleUploadPage(&data_manager, &temp, &config, token)
+                    .toResponse());
 
         let config = self.config.clone();
         let data_manager = self.data_manager.clone();
         let upload = warp::post().and(warp::path("upload"))
             .and(warp::path::end())
-            // .and(warp::filters::cookie::optional(TOKEN_COOKIE))
-            .and(warp::multipart::form().max_length(self.config.upload_bytes_max))
-            .and_then(move |data: warp::multipart::FormData| {
+            .and(warp::filters::cookie::optional(TOKEN_COOKIE))
+            .and(warp::multipart::form()
+                 .max_length(self.config.upload_bytes_max))
+            .and_then(
+                move |token: Option<String>, data: warp::multipart::FormData| {
                 let config = config.clone();
                 let data_manager = data_manager.clone();
                 async move {
-                    handleUpload(data, &data_manager, &config).await
+                    handleUpload(token, data, &data_manager, &config).await
                 }
             });
 
+        let config = self.config.clone();
+        let data_manager = self.data_manager.clone();
+        let login = warp::get().and(warp::path("login")).and(warp::path::end())
+            .and(warp::header::optional::<String>("Authorization"))
+            .map(move |auth_value: Option<String>| {
+                handleLogin(auth_value, &data_manager, &config).toResponse()
+            });
+
+        let bare_route = statics.or(index).or(post).or(delete_confirm).or(delete)
+            .or(upload_page).or(upload).or(login);
         let route = if self.config.serve_under_path == String::from("/") ||
             self.config.serve_under_path.is_empty()
         {
-            statics.or(index).or(upload_page).or(upload).boxed()
+            bare_route.boxed()
         }
         else
         {
@@ -329,7 +401,7 @@ impl App
             {
                 r = r.and(warp::path(seg.to_owned())).boxed();
             }
-            r.and(statics.or(index).or(upload_page).or(upload)).boxed()
+            r.and(bare_route).boxed()
         };
 
         info!("Listening at {}:{}...", self.config.listen_address,

@@ -15,6 +15,7 @@ pub struct Image
 
 pub struct Post
 {
+    pub id: i64,
     pub images: Vec<Image>,
     pub desc: String,
     pub upload_time: OffsetDateTime,
@@ -26,6 +27,7 @@ impl Post
     pub fn new() -> Self
     {
         Self {
+            id: 0,
             images: Vec::new(),
             desc: String::new(),
             upload_time: OffsetDateTime::UNIX_EPOCH,
@@ -40,7 +42,8 @@ impl Serialize for Post
     where
         S: Serializer,
     {
-        let mut state = serializer.serialize_struct("Video", 4)?;
+        let mut state = serializer.serialize_struct("Video", 5)?;
+        state.serialize_field("id", &self.id)?;
         state.serialize_field("images", &self.images)?;
         state.serialize_field("desc", &self.desc)?;
         state.serialize_field("upload_time",
