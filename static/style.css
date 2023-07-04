@@ -135,7 +135,6 @@ ul.ImageList
     overflow-y: hidden;
     align-items: center;
     scroll-snap-type: x mandatory;
-    scrollbar-gutter: stable;
 }
 
 ul.ImageList > li
@@ -188,7 +187,15 @@ ul.ToolBar
 ul.ToolBar > li
 {
     display: inline-block;
-    width: 20px;
+    width: 24px;
+}
+
+li.ToolBarButton > a
+{
+    display: block;
+    width: 24px;
+    height: 24px;
+    text-align: center;
 }
 
 .PostInfo
