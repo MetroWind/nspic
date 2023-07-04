@@ -28,7 +28,7 @@ fn main() -> Result<(), Error>
              .long("config")
              .short('c')
              .value_name("FILE")
-             .default_value("/etc/metube.toml")
+             .default_value("/etc/nspic.toml")
              .help("Path of config file."))
         .get_matches();
 
