@@ -1,5 +1,4 @@
 use std::path::{Path, PathBuf};
-use std::collections::HashMap;
 use std::io::prelude::*;
 use std::io::BufWriter;
 use std::fs::File;
@@ -11,12 +10,9 @@ use futures_util::StreamExt;
 use bytes::buf::Buf;
 use log::debug;
 use log::error as log_error;
-use time::OffsetDateTime;
 use warp::http::status::StatusCode;
 use sha2::Digest;
-use regex::Regex;
 
-use crate::data;
 use crate::error::Error;
 use crate::post::Image;
 use crate::config::Configuration;
@@ -50,6 +46,28 @@ impl ImageMetadata
     pub fn new() -> Self
     {
         Self { width: 0, height: 0 }
+    }
+}
+
+fn resizeImage(img: &Path, output: &Path, size: u32, quality: i32) ->
+    Result<(), Error>
+{
+    let status = Command::new("magick").args(
+        &[img.to_str().ok_or_else(
+            || rterr!("Invalid image path: {:?}", img))?,
+          "-colorspace", "RGB", "-resize", &format!("{size}x{size}>"),
+          "-colorspace", "sRGB", "-quality", &quality.to_string(),
+          output.to_str().ok_or_else(
+              || rterr!("Invalid image path: {:?}", img))?,
+        ])
+        .status().map_err(|e| rterr!("Failed to run imagemagick: {}", e))?;
+    if status.success()
+    {
+        Ok(())
+    }
+    else
+    {
+        Err(rterr!("Imagemagick failed."))
     }
 }
 
@@ -96,7 +114,7 @@ pub async fn uploadPart(part: warp::multipart::Part) -> Result<Vec<u8>, Error>
             let bytes = buffer.chunk();
             let buffer_size = bytes.len();
             data.extend(bytes.iter());
-            buffer.advance(bytes.len());
+            buffer.advance(buffer_size);
         }
     }
     Ok(data)
@@ -108,7 +126,7 @@ pub struct UploadingImage
     pub part: warp::multipart::Part,
 }
 
-/// A video file that is just uploaded.
+/// A image file that is just uploaded.
 pub struct RawImage
 {
     /// Path of the image file, accessible from the CWD.
@@ -183,57 +201,117 @@ impl UploadingImage
     }
 }
 
+/// A uploaded image file with resized version.
+pub struct ResizedImage
+{
+    /// Path of the uploaded temp image file, accessible from the CWD.
+    pub uploaded: PathBuf,
+    /// Path of the resized image file, accessible from the CWD.
+    pub path: PathBuf,
+    pub hash: String,
+    pub original_filename: String,
+}
+
 impl RawImage
 {
-    pub fn resize(self, config: &Configuration) -> Result<Self, Error>
+    pub fn resize(self, config: &Configuration) -> Result<ResizedImage, Error>
     {
         let target_file = self.path.with_file_name(
-            self.path.file_stem().unwrap().to_str().unwrap().to_owned()
-                + "-processed.jpg");
-        let status = Command::new("magick").args(
-            &[self.path.to_str().ok_or_else(
-                || rterr!("Invalid image path: {:?}", self.path))?,
-              "-colorspace", "RGB", "-resize",
-              &format!("{size}x{size}>", size=config.image_pixel_size),
-              "-colorspace", "sRGB", "-quality", "90",
-              target_file.to_str().unwrap()])
-            .status().map_err(|e| rterr!("Failed to run imagemagick: {}", e))?;
-        std::fs::remove_file(&self.path).ok();
-        if status.success()
-        {
-            Ok(Self {
-                path: target_file,
-                hash: self.hash,
-                original_filename: self.original_filename,
-            })
-        }
-        else
-        {
-            std::fs::remove_file(&target_file).ok();
-            Err(rterr!("Imagemagick failed to resize image."))
-        }
-    }
+            format!("{}-processed.{}",
+                    self.path.file_stem().unwrap().to_str().unwrap().to_owned(),
+                    config.image_encoding.extension()));
 
+        if let Err(e) = resizeImage(
+            &self.path, &target_file, config.image_pixel_size,
+            config.image_encoding_quality)
+        {
+            std::fs::remove_file(&self.path).ok();
+            std::fs::remove_file(&target_file).ok();
+            return Err(e);
+        }
+        Ok(ResizedImage {
+            uploaded: self.path,
+            path: target_file,
+            hash: self.hash,
+            original_filename: self.original_filename,
+        })
+    }
+}
+
+/// A uploaded image file with resized version.
+pub struct ImageWithThumbnail
+{
+    /// Path of the resized image file, accessible from the CWD.
+    pub path: PathBuf,
+    /// Path of the thumbnail file, accessible from the CWD.
+    pub thumbnail: PathBuf,
+    pub hash: String,
+    pub original_filename: String,
+}
+
+impl ResizedImage
+{
+    pub fn makeThumbnail(self, config: &Configuration) ->
+        Result<ImageWithThumbnail, Error>
+    {
+        let thumb_file = randomTempFilename(&config.image_dir)
+            .with_extension(config.image_encoding.extension());
+        if let Err(e) = resizeImage(
+            &self.uploaded, &thumb_file, config.thumb_pixel_size,
+            config.image_encoding_quality)
+        {
+            std::fs::remove_file(&self.path).ok();
+            std::fs::remove_file(&self.uploaded).ok();
+            std::fs::remove_file(&thumb_file).ok();
+            return Err(e);
+        }
+        std::fs::remove_file(&self.uploaded).ok();
+        Ok(ImageWithThumbnail {
+            path: self.path,
+            thumbnail: thumb_file,
+            hash: self.hash,
+            original_filename: self.original_filename
+        })
+    }
+}
+
+impl ImageWithThumbnail
+{
     pub fn moveToLibrary(self, config: &Configuration) ->
         Result<Self, Error>
     {
-        let ext = self.path.extension().or(Some(OsStr::new(""))).unwrap();
         let subdir = Path::new(&config.image_dir).join(&self.hash[..1]);
         if !subdir.exists()
         {
             std::fs::create_dir(&subdir).map_err(
                 |_| rterr!("Failed to create sub dir"))?;
         }
-        let image_file: PathBuf = subdir.join(&self.hash).with_extension("jpg");
+        let ext = config.image_encoding.extension();
+        let image_file: PathBuf = subdir.join(&self.hash).with_extension(ext);
         debug!("Moving image {:?} --> {:?}...", self.path, image_file);
+        assert!(self.path.exists());
         if let Err(e) = std::fs::rename(&self.path, &image_file)
         {
             std::fs::remove_file(&self.path).ok();
+            std::fs::remove_file(&self.thumbnail).ok();
             std::fs::remove_file(&image_file).ok();
+            return Err(rterr!("Failed to rename temp file: {}", e));
+        }
+        let thumb_file: PathBuf = subdir.join(
+            format!("{}_t.{}", self.hash, ext));
+        assert!(self.thumbnail.exists());
+        debug!("Moving thumbnail {:?} --> {:?}...", self.thumbnail, thumb_file);
+        if let Err(e) = std::fs::rename(&self.thumbnail, &thumb_file)
+        {
+            std::fs::remove_file(&self.path).ok();
+            std::fs::remove_file(&self.thumbnail).ok();
+            std::fs::remove_file(&image_file).ok();
+            std::fs::remove_file(&thumb_file).ok();
             return Err(rterr!("Failed to rename temp file: {}", e));
         }
         Ok(Self {
             path: image_file,
+            thumbnail: thumb_file,
             hash: self.hash,
             original_filename: self.original_filename
         })
@@ -269,12 +347,13 @@ impl RawImage
 
     pub fn probeMetadata(self, config: &Configuration) -> Result<Image, Error>
     {
-        let image_path = Path::new(&config.image_dir).join(&self.path);
-        let metadata = match probeImage(&image_path)
+        let metadata = match probeImage(&PathBuf::from(&config.image_dir)
+                                        .join(&self.path))
         {
             Ok(data) => data,
             Err(e) => {
-                std::fs::remove_file(image_path).ok();
+                std::fs::remove_file(&self.path).ok();
+                std::fs::remove_file(&self.thumbnail).ok();
                 return Err(e);
             },
         };
@@ -285,22 +364,12 @@ impl RawImage
         })
     }
 }
-impl Image
-{
-    /// Thumbnail generation shouldn’t usually fail. This function
-    /// should almost always return Ok(), unless something panicking
-    /// happend.
-    pub fn generateThumbnail(mut self, config: &Configuration) ->
-        Result<Image, Error>
-    {
-        Ok(self)
-    }
-}
 
 #[cfg(test)]
 mod tests
 {
     use super::*;
+    use crate::data;
 
     struct FileDeleter
     {
@@ -346,7 +415,7 @@ mod tests
     fn uniqueTempDir() -> Result<PathBuf, Box<dyn std::error::Error>>
     {
         let image_dir = std::env::temp_dir().join(
-            "nspic-test-".to_owned() + &rand::random::<u128>().to_string());
+            "nspic-test-".to_owned() + &rand::random::<u64>().to_string());
         std::fs::create_dir_all(&image_dir)?;
         Ok(image_dir)
     }
@@ -373,12 +442,14 @@ mod tests
         data_manager.connect()?;
         data_manager.init()?;
         let img = v.resize(&config)?
+            .makeThumbnail(&config)?
             .moveToLibrary(&config)?
             .makeRelativePath(&config)?
-            .probeMetadata(&config)?
-            .generateThumbnail(&config)?;
+            .probeMetadata(&config)?;
 
         assert_eq!(&img.path, &Path::new("1").join("12345.jpg"));
+        assert!(PathBuf::from(&config.image_dir).join(&img.thumbnail()?)
+                .exists());
         assert_eq!(img.width, 400);
         assert_eq!(img.height, 296);
         Ok(())
@@ -407,12 +478,14 @@ mod tests
         data_manager.connect()?;
         data_manager.init()?;
         let img = v.resize(&config)?
+            .makeThumbnail(&config)?
             .moveToLibrary(&config)?
             .makeRelativePath(&config)?
-            .probeMetadata(&config)?
-            .generateThumbnail(&config)?;
+            .probeMetadata(&config)?;
 
         assert_eq!(&img.path, &Path::new("1").join("12345.jpg"));
+        assert!(PathBuf::from(&config.image_dir).join(&img.thumbnail()?)
+                .exists());
         assert_eq!(img.width, 256);
         assert_eq!(img.height, 189);
         Ok(())

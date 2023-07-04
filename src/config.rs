@@ -2,6 +2,26 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::Error;
 
+#[derive(Deserialize, Clone)]
+pub enum ImageEncoding
+{
+    Jpeg, Png, Avif, JpegXl,
+}
+
+impl ImageEncoding
+{
+    pub fn extension(&self) -> &str
+    {
+        match self
+        {
+            Self::Jpeg => "jpg",
+            Self::Png => "png",
+            Self::Avif => "avif",
+            Self::JpegXl => "jxl",
+        }
+    }
+}
+
 fn defaultListenAddr() -> String
 {
     String::from("127.0.0.1")
@@ -17,6 +37,9 @@ fn defaultDataDir() -> String { String::from(".") }
 fn defaultImageDir() -> String { String::from("test") }
 fn defaultUploadBytesMax() -> u64 { 1024 * 1024 * 100 }
 fn defaultImagePixelSize() -> u32 { 1280 }
+fn defaultThumbPixelSize() -> u32 { 256 }
+fn defaultImageEncoding() -> ImageEncoding { ImageEncoding::Jpeg }
+fn defaultImageEncodingQuality() -> i32 { 90 }
 fn defaultSessionLiftTimeSec() -> u64 { 2592000 }
 
 fn defaultSiteTitle() -> String { String::from("NSPic") }
@@ -69,6 +92,12 @@ pub struct Configuration
     pub image_dir: String,
     #[serde(default = "defaultImagePixelSize")]
     pub image_pixel_size: u32,
+    #[serde(default = "defaultThumbPixelSize")]
+    pub thumb_pixel_size: u32,
+    #[serde(default = "defaultImageEncoding")]
+    pub image_encoding: ImageEncoding,
+    #[serde(default = "defaultImageEncodingQuality")]
+    pub image_encoding_quality: i32,
     #[serde(default = "defaultSessionLiftTimeSec")]
     pub session_life_time_sec: u64,
     pub password: String,
@@ -99,6 +128,9 @@ impl Default for Configuration
             upload_bytes_max: defaultUploadBytesMax(),
             image_dir: defaultImageDir(),
             image_pixel_size: defaultImagePixelSize(),
+            thumb_pixel_size: defaultThumbPixelSize(),
+            image_encoding: defaultImageEncoding(),
+            image_encoding_quality: defaultImageEncodingQuality(),
             session_life_time_sec: defaultSessionLiftTimeSec(),
             password: String::from("nspic"),
             site_info: SiteInfo::default(),

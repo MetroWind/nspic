@@ -2,13 +2,11 @@ use std::path::{PathBuf, Path};
 use std::collections::HashMap;
 
 use log::{info, debug};
-use log::error as log_error;
 use tera::Tera;
 use time::OffsetDateTime;
 use warp::{Filter, Reply};
 use warp::http::status::StatusCode;
 use warp::reply::Response;
-use base64::engine::Engine;
 use futures_util::TryStreamExt;
 
 use crate::error;
@@ -20,11 +18,6 @@ use crate::utils::uriFromStr;
 use crate::auth::{handleLogin, validateSession, TOKEN_COOKIE};
 use crate::to_response::ToResponse;
 use crate::post_pipeline::{UploadingImage, RawImage, uploadPart, imagePath};
-
-static BASE64: &base64::engine::general_purpose::GeneralPurpose =
-    &base64::engine::general_purpose::STANDARD;
-static BASE64_NO_PAD: &base64::engine::general_purpose::GeneralPurpose =
-    &base64::engine::general_purpose::STANDARD_NO_PAD;
 
 fn handleIndex(templates: &Tera, params: &HashMap<String, String>,
                data_manager: &data::Manager,
@@ -184,10 +177,10 @@ async fn handleUpload(token: Option<String>,
             UploadPart::Desc(s) => {desc = s;},
             UploadPart::Image(img) => {
                 let image = img.resize(config).map_err(error::reject)?
+                    .makeThumbnail(config).map_err(error::reject)?
                     .moveToLibrary(config).map_err(error::reject)?
                     .makeRelativePath(config).map_err(error::reject)?
-                    .probeMetadata(config).map_err(error::reject)?
-                    .generateThumbnail(config).map_err(error::reject)?;
+                    .probeMetadata(config).map_err(error::reject)?;
                 images.push(image);
             }
         }
