@@ -31,8 +31,27 @@ fn handleIndex(templates: &Tera, params: &HashMap<String, String>,
     {
         0
     };
-    let posts = data_manager.getPosts(start, 50, data::PostOrder::NewFirst)?;
+    let page_size = 16;
+    let post_count = data_manager.countPosts()?;
+    let posts = data_manager.getPosts(
+        start, page_size, data::PostOrder::NewFirst)?;
     let mut context = tera::Context::new();
+    if post_count > start + page_size
+    {
+        context.insert("next", &(start + page_size));
+    }
+    if start > 0
+    {
+        let prev = if start < page_size
+        {
+            0
+        }
+        else
+        {
+            start - page_size
+        };
+        context.insert("prev", &prev);
+    }
     context.insert("posts", &posts);
     context.insert("site_info", &config.site_info);
     let html = templates.render("index.html", &context).map_err(

@@ -249,6 +249,13 @@ impl Manager
         Ok(result)
     }
 
+    pub fn countPosts(&self) -> Result<u64, Error>
+    {
+        let conn = self.confirmConnection()?;
+        conn.query_row("SELECT COUNT(*) FROM posts;", [], |row| row.get(0))
+            .map_err(|e| error!(DataError, "Failed to count posts: {}", e))
+    }
+
     pub fn createSession(&self, token: &str) -> Result<(), Error>
     {
         let conn = self.confirmConnection()?;
