@@ -1,0 +1,44 @@
+on: [push]
+name: Build and release
+jobs:
+  build_and_test:
+    name: Rust project
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+      - uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --release
+
+      - name: Make tarball
+        run: "tar -C .. -c –zstd -vf nspic.tar.zstd nspic/{static,templates} nspic/target/release/nspic"
+
+      - name: Create Draft Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: release-${{ github.sha }}
+          release_name: Release ${{ github.sha }}
+          draft: true
+          prerelease: false
+
+      - uses: actions/upload-release-asset@v1.0.1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: nspic.tar.zstd
+          asset_name: nspic-linux-amd64.tar.zstd
+          asset_content_type: application/zstd
+
+      - uses: eregon/publish-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          release_id: ${{ steps.create_release.outputs.id }}
