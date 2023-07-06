@@ -15,7 +15,7 @@ jobs:
           args: --release
 
       - name: Make tarball
-        run: "tar -C .. -c --zstd -vf nspic.tar.zstd nspic/{static,templates} nspic/target/release/nspic"
+        run: "tar -C .. -c --zstd -vf nspic.tar.zstd nspic/nspic/{static,templates} nspic/target/release/nspic"
 
       - name: Create Draft Release
         id: create_release
