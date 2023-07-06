@@ -139,7 +139,6 @@ ul.PostList > li
 ul.ImageList
 {
     display: flex;
-    overflow-x: scroll;
     overflow-y: hidden;
     align-items: center;
     scroll-snap-type: x mandatory;
