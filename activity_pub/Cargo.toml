@@ -1,0 +1,19 @@
+[package]
+name = "activity_pub"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+log = ">=0.4"
+tokio = { version = ">=1", features = ["rt-multi-thread"] }
+serde = { version = ">=1", features = ["derive"] }
+urlencoding = ">=2"
+time = { version = ">=0.3", features = ["formatting"] }
+rand = ">=0.8"
+sha2 = ">=0.10"
+regex = ">=1.8"
+base64 = ">=0.21"
+
+[lib]
+name = "activity_pub"
+path = "lib.rs"
