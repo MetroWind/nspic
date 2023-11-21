@@ -8,7 +8,10 @@
     <meta property="og:type" content="website" />
     <meta property="og:description" content="{{ site_info.site_title }}" />
     <meta property="og:url" content="{{ site_info.url_domain ~ url_for(name='index', arg='') }}" />
-    <meta property="og:image" content="{{ site_info.url_domain ~ url_for(name='static', arg='film.svg') }}" />
+    <meta property="og:image" content="{{ site_info.url_domain ~
+                                       url_for(name='static', arg='film.svg') }}" />
+    <link rel="alternate" type="application/atom+xml" title="Atom feed"
+          href="{{ url_for(name='feed', arg='') }}" />
     <title>NSPic → Index</title>
   </head>
   <body>

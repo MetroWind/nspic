@@ -72,6 +72,22 @@ fn handlePost(templates: &Tera, post_id: i64, data_manager: &data::Manager,
     Ok(warp::reply::html(html).into_response())
 }
 
+fn handleFeed(templates: &Tera, data_manager: &data::Manager,
+              config: &Configuration) -> Result<Response, Error>
+{
+    let feed_size = 10;
+    let posts = data_manager.getPosts(
+        0, feed_size, data::PostOrder::NewFirst)?;
+    let mut context = tera::Context::new();
+    context.insert("posts", &posts);
+    context.insert("site_info", &config.site_info);
+    let feed_str = templates.render("atom.xml", &context).map_err(
+        |e| rterr!("Failed to render template: {}", e))?;
+    Ok(warp::reply::with_header(feed_str, "Content-Type",
+                                "application/atom+xml")
+       .into_response())
+}
+
 fn handleDeleteConfirm(
     templates: &Tera, post_id: i64, data_manager: &data::Manager,
     config: &Configuration, token: Option<String>) -> Result<Response, Error>
@@ -220,6 +236,7 @@ fn urlFor(name: &str, arg: &str) -> String
         "index" => String::from("/"),
         "upload" => String::from("/upload"),
         "post" => String::from("/p/") + arg,
+        "feed" => String::from("/feed.xml"),
         "delete_confirm" => String::from("/delete-confirm/") + arg,
         "delete" => String::from("/delete/") + arg,
         "login" => String::from("/login/"),
@@ -342,6 +359,14 @@ impl App
         let temp = self.templates.clone();
         let config = self.config.clone();
         let data_manager = self.data_manager.clone();
+        let feed = warp::get().and(warp::path("feed.xml"))
+            .and(warp::path::end()).map(move || {
+            handleFeed(&temp, &data_manager, &config).toResponse()
+        });
+
+        let temp = self.templates.clone();
+        let config = self.config.clone();
+        let data_manager = self.data_manager.clone();
         let delete_confirm = warp::get().and(warp::path("delete-confirm"))
             .and(warp::path::param()).and(warp::path::end())
             .and(warp::filters::cookie::optional(TOKEN_COOKIE))
@@ -393,8 +418,8 @@ impl App
                 handleLogin(auth_value, &data_manager, &config).toResponse()
             });
 
-        let bare_route = statics.or(index).or(post).or(delete_confirm).or(delete)
-            .or(upload_page).or(upload).or(login);
+        let bare_route = statics.or(index).or(post).or(feed).or(delete_confirm)
+            .or(delete).or(upload_page).or(upload).or(login);
         let route = if self.config.serve_under_path == String::from("/") ||
             self.config.serve_under_path.is_empty()
         {

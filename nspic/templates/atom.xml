@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>{{ site_info.site_title }}</title>
+  <link href="http://example.org/"/>
+  <updated>{{ posts[0].upload_time_rfc3339 }}</updated>
+  <author>
+    <name>{{ site_info.username }}</name>
+  </author>
+  <id>{{ url_for(name='index', arg='') }}</id>
+  {% for post in posts -%}
+  <entry>
+    <link href="{{ url_for(name='post', arg=post.id | as_str)}}"
+          rel="self" type="text/html"/>
+    {% for image in post.images %}
+    <link rel="related" type="image/*"
+        href="{{ url_for(name='image_file', arg=image.path) }}"/>
+    <id>{{ url_for(name='post', arg=post.id | as_str)}}</id>
+    <published>{{ post.upload_time_rfc3339 }}</published>
+    <summary>{{ post.desc }}</summary>
+  </entry>
+  {% endfor %}
+</feed>

@@ -45,6 +45,7 @@ fn defaultSessionLiftTimeSec() -> u64 { 2592000 }
 fn defaultSiteTitle() -> String { String::from("NSPic") }
 fn defaultFootnote() -> String { String::new() }
 fn defaultUrlDomain() -> String { String::from("http://example.org") }
+fn defaultUsername() -> String { String::from("User") }
 
 #[derive(Deserialize, Serialize, Clone)]
 pub struct SiteInfo
@@ -53,11 +54,17 @@ pub struct SiteInfo
     pub site_title: String,
     #[serde(default = "defaultFootnote")]
     pub footnote: String,
+
     /// The beginning part of the URL of the website, including only
     /// the protocol and domain, without the trailing slash. This is
     /// only used in the OGP metadata. Example: http://example.org.
     #[serde(default = "defaultUrlDomain")]
     pub url_domain: String,
+
+    /// This is only used for atom feed.
+    #[serde(default = "defaultUsername")]
+    pub username: String,
+
 }
 
 impl Default for SiteInfo
@@ -68,6 +75,7 @@ impl Default for SiteInfo
             site_title: defaultSiteTitle(),
             footnote: defaultFootnote(),
             url_domain: defaultUrlDomain(),
+            username: defaultUsername(),
         }
     }
 }

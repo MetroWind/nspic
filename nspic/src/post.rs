@@ -88,6 +88,10 @@ impl Serialize for Post
         state.serialize_field(
             "upload_time_utc_str", &self.upload_time.format(&format).map_err(
                 |_| serde::ser::Error::custom("Invalid upload time"))?)?;
+        state.serialize_field(
+            "upload_time_rfc3339", &self.upload_time.format(
+                &time::format_description::well_known::Rfc3339).map_err(
+                |_| serde::ser::Error::custom("Invalid upload time"))?)?;
         state.serialize_field("album_id", &self.album_id)?;
         state.end()
     }
