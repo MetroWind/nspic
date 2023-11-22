@@ -160,7 +160,8 @@ enum UploadPart
     Image(RawImage),
 }
 
-fn webhookPayload(post: &Post) -> serde_json::value::Value
+fn webhookPayload(post: &Post, config: &Configuration) ->
+    serde_json::value::Value
 {
     let mut payload = json!({
         "desc": post.desc,
@@ -171,7 +172,8 @@ fn webhookPayload(post: &Post) -> serde_json::value::Value
     for img in &post.images
     {
         payload["images"].as_array_mut().unwrap()
-            .push(json!(urlFor("image", img.path.to_str().unwrap())));
+            .push(json!(config.site_info.url_domain.clone() +
+                        &urlFor("image_file", img.path.to_str().unwrap())));
     }
     return payload
 }
@@ -248,7 +250,7 @@ async fn handleUpload(token: Option<String>,
     // Call webhook
     if let Some(url) = &config.webhook_url
     {
-        let payload = serde_json::to_vec(&webhookPayload(&post));
+        let payload = serde_json::to_vec(&webhookPayload(&post, config));
         if let Err(e) = payload
         {
             log_err!("Invalid payload: {}.", e);
