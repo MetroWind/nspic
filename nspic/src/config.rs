@@ -109,6 +109,9 @@ pub struct Configuration
     #[serde(default = "defaultSessionLiftTimeSec")]
     pub session_life_time_sec: u64,
     pub password: String,
+    /// NSPic will POST to this URI with a JSON payload when a post is
+    /// created.
+    pub webhook_url: Option<String>,
     pub site_info: SiteInfo,
 }
 
@@ -141,6 +144,7 @@ impl Default for Configuration
             image_encoding_quality: defaultImageEncodingQuality(),
             session_life_time_sec: defaultSessionLiftTimeSec(),
             password: String::from("nspic"),
+            webhook_url: None,
             site_info: SiteInfo::default(),
         }
     }

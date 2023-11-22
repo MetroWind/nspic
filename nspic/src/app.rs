@@ -2,12 +2,14 @@ use std::path::{PathBuf, Path};
 use std::collections::HashMap;
 
 use log::{info, debug};
+use log::error as log_err;
 use tera::Tera;
 use time::OffsetDateTime;
 use warp::{Filter, Reply};
 use warp::http::status::StatusCode;
 use warp::reply::Response;
 use futures_util::TryStreamExt;
+use serde_json::json;
 
 use crate::error;
 use crate::error::Error;
@@ -158,6 +160,22 @@ enum UploadPart
     Image(RawImage),
 }
 
+fn webhookPayload(post: &Post) -> serde_json::value::Value
+{
+    let mut payload = json!({
+        "desc": post.desc,
+        "images": [],
+        "url": urlFor("post", &post.id.to_string()),
+        "time": post.upload_time.unix_timestamp(),
+    });
+    for img in &post.images
+    {
+        payload["images"].as_array_mut().unwrap()
+            .push(json!(urlFor("image", img.path.to_str().unwrap())));
+    }
+    return payload
+}
+
 async fn handleUpload(token: Option<String>,
                       form_data: warp::multipart::FormData,
                       data_manager: &data::Manager,
@@ -226,6 +244,34 @@ async fn handleUpload(token: Option<String>,
     post.images = images;
     // post.album_id = ???;
     data_manager.addPost(&post, None).map_err(error::reject)?;
+
+    // Call webhook
+    if let Some(url) = &config.webhook_url
+    {
+        let payload = serde_json::to_vec(&webhookPayload(&post));
+        if let Err(e) = payload
+        {
+            log_err!("Invalid payload: {}.", e);
+        }
+        else
+        {
+            let result = ureq::post(url).set("Content-Type", "application/json")
+                .send_bytes(&payload.unwrap());
+            if let Err(e) = result
+            {
+                log_err!("Webhook failed: {}.", e);
+            }
+            else
+            {
+                let status = result.unwrap().status();
+                if status < 200 || status >= 300
+                {
+                    log_err!("Webhook failed with status {}.", status);
+                }
+            }
+        }
+    }
+
     Ok::<_, warp::Rejection>(String::from("Ok"))
 }
 
