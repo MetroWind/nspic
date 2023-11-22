@@ -160,13 +160,14 @@ enum UploadPart
     Image(RawImage),
 }
 
-fn webhookPayload(post: &Post, config: &Configuration) ->
+fn webhookPayload(post: &Post, id: i64, config: &Configuration) ->
     serde_json::value::Value
 {
     let mut payload = json!({
         "desc": post.desc,
         "images": [],
-        "url": urlFor("post", &post.id.to_string()),
+        "url": config.site_info.url_domain.clone() +
+            &urlFor("post", &id.to_string()),
         "time": post.upload_time.unix_timestamp(),
     });
     for img in &post.images
@@ -245,12 +246,13 @@ async fn handleUpload(token: Option<String>,
     post.upload_time = OffsetDateTime::now_utc();
     post.images = images;
     // post.album_id = ???;
-    data_manager.addPost(&post, None).map_err(error::reject)?;
+    let new_id = data_manager.addPost(&post, None).map_err(error::reject)?;
 
     // Call webhook
     if let Some(url) = &config.webhook_url
     {
-        let payload = serde_json::to_vec(&webhookPayload(&post, config));
+        // Note that `post` doesn’t have an ID in it.
+        let payload = serde_json::to_vec(&webhookPayload(&post, new_id, config));
         if let Err(e) = payload
         {
             log_err!("Invalid payload: {}.", e);
